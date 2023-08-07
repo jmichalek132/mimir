@@ -9,6 +9,7 @@
 * [ENHANCEMENT] Expose `/sync/mutex/wait/total:seconds` Go runtime metric as `go_sync_mutex_wait_total_seconds_total` from all components. #5879
 * [ENHANCEMENT] Go: updated to 1.21.1. #5955
 * [BUGFIX] Ingester: fix spurious `not found` errors on label values API during head compaction. #5957
+* [ENHANCEMENT] Distributor: Translate OTLP to Metadata and forward it. This makes metrics description and type available when ingest OTLP protocol. #5693
 
 ### Mixin
 
