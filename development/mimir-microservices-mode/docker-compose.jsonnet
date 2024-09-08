@@ -5,7 +5,7 @@ std.manifestYamlDoc({
 
     // If true, Mimir services are run under Delve debugger, that can be attached to via remote-debugging session.
     // Note that Delve doesn't forward signals to the Mimir process, so Mimir components don't shutdown cleanly.
-    debug: false,
+    debug: true,
 
     // How long should Mimir docker containers sleep before Mimir is started.
     sleep_seconds: 3,
@@ -227,7 +227,7 @@ std.manifestYamlDoc({
       std.join(' ', [
         // some of the following expressions use "... else null", which std.join seem to ignore.
         (if $._config.sleep_seconds > 0 then 'sleep %d &&' % [$._config.sleep_seconds] else null),
-        (if $._config.debug then 'exec ./dlv exec ./mimir --listen=:%(debugPort)d --headless=true --api-version=2 --accept-multiclient --continue -- ' % options else 'exec ./mimir'),
+        (if $._config.debug then 'exec ./dlv exec ./mimir --listen=:%(debugPort)d --headless=true --check-go-version=false --api-version=2 --accept-multiclient --continue -- ' % options else 'exec ./mimir'),
         ('-config.file=./config/mimir.yaml -target=%(target)s -server.http-listen-port=%(httpPort)d -server.grpc-listen-port=%(grpcPort)d -activity-tracker.filepath=/activity/%(target)s-%(httpPort)d %(extraArguments)s' % options),
         (if $._config.ring == 'memberlist' || $._config.ring == 'multi' then '-memberlist.nodename=%(memberlistNodeName)s -memberlist.bind-port=%(memberlistBindPort)d' % options else null),
         (if $._config.ring == 'memberlist' then std.join(' ', [x + '.store=memberlist' for x in all_rings]) else null),
