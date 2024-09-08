@@ -233,8 +233,10 @@ func decompressRequest(buffers *RequestBuffers, reader io.Reader, expectedSize, 
 		}
 	}
 
+	sp.LogFields(otlog.Event("util.ParseProtoReader[started_reading]"))
 	// Limit at maxSize+1 so we can tell when the size is exceeded
 	reader = io.LimitReader(reader, int64(maxSize)+1)
+	sp.LogFields(otlog.Event("util.ParseProtoReader[finished_reading]"))
 
 	sz := expectedSize
 	if sz > 0 {

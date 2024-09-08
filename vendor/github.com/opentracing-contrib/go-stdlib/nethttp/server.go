@@ -5,6 +5,8 @@ package nethttp
 import (
 	"net/http"
 	"net/url"
+	"strings"
+	"fmt"
 
 	opentracing "github.com/opentracing/opentracing-go"
 	"github.com/opentracing/opentracing-go/ext"
@@ -91,6 +93,54 @@ func Middleware(tr opentracing.Tracer, h http.Handler, options ...MWOption) http
 	return MiddlewareFunc(tr, h.ServeHTTP, options...)
 }
 
+// OTelHeaders structure to hold extracted OpenTelemetry headers
+type OTelHeaders struct {
+	TraceParent string
+	TraceState  string
+	Baggage     string
+}
+
+// ExtractOTelHeaders extracts OpenTelemetry headers from an HTTP request
+func ExtractOTelHeaders(r *http.Request) OTelHeaders {
+	headers := OTelHeaders{
+		TraceParent: r.Header.Get("traceparent"),
+		TraceState:  r.Header.Get("tracestate"),
+		Baggage:     r.Header.Get("baggage"),
+	}
+	return headers
+}
+
+// ConvertToJaegerHeaders converts OpenTelemetry headers to Jaeger headers
+func ConvertToJaegerHeaders(otelHeaders OTelHeaders) (string, map[string]string) {
+	// Split traceparent header to extract trace ID, span ID, and flags
+	traceParts := strings.Split(otelHeaders.TraceParent, "-")
+	if len(traceParts) != 4 {
+		// Invalid traceparent header format
+		return "", nil
+	}
+	traceID := traceParts[1]   // 32 hex chars
+	spanID := traceParts[2]    // 16 hex chars
+	flags := traceParts[3]     // 2 hex chars
+
+	// Construct the Jaeger `uber-trace-id` header
+	uberTraceID := fmt.Sprintf("%s:%s:0:%s", traceID, spanID, flags)
+
+	// Map baggage items to Jaeger baggage headers (if any)
+	jaegerBaggageHeaders := make(map[string]string)
+	if otelHeaders.Baggage != "" {
+		baggageItems := strings.Split(otelHeaders.Baggage, ",")
+		for _, item := range baggageItems {
+			pair := strings.SplitN(item, "=", 2)
+			if len(pair) == 2 {
+				// Jaeger baggage headers are prefixed with `uberctx-`
+				jaegerBaggageHeaders["uberctx-"+pair[0]] = pair[1]
+			}
+		}
+	}
+
+	return uberTraceID, jaegerBaggageHeaders
+}
+
 // MiddlewareFunc wraps an http.HandlerFunc and traces incoming requests.
 // It behaves identically to the Middleware function above.
 //
@@ -121,7 +171,25 @@ func MiddlewareFunc(tr opentracing.Tracer, h http.HandlerFunc, options ...MWOpti
 			h(w, r)
 			return
 		}
-		ctx, _ := tr.Extract(opentracing.HTTPHeaders, opentracing.HTTPHeadersCarrier(r.Header))
+		ctx, err := tr.Extract(opentracing.HTTPHeaders, opentracing.HTTPHeadersCarrier(r.Header))
+		if err != nil {
+			otelHeaders := ExtractOTelHeaders(r)
+			if otelHeaders.TraceParent != "" {
+				// Convert to Jaeger headers
+				uberTraceID, jaegerBaggageHeaders := ConvertToJaegerHeaders(otelHeaders)
+
+				// Parse the `uber-trace-id` into a Jaeger SpanContext
+				carrier := opentracing.TextMapCarrier{
+					"uber-trace-id": uberTraceID,
+				}
+				for k, v := range jaegerBaggageHeaders {
+					carrier[k] = v
+				}
+
+				ctx, _ = tr.Extract(opentracing.TextMap, carrier)
+				
+			}
+		}
 		sp := tr.StartSpan(opts.opNameFunc(r), ext.RPCServerOption(ctx))
 		ext.HTTPMethod.Set(sp, r.Method)
 		ext.HTTPUrl.Set(sp, opts.urlTagFunc(r.URL))
